@@ -316,19 +316,62 @@ class DataTableComponent extends PaginatorComponent {
 					if (!empty($this->_params[$searchKey])) {
 						$columnSearchTerm = $this->_params[$searchKey];
 					}
-					if (is_string($searchable) && is_callable(array($this->_object, $searchable))) {
-						$result = $this->_object->$searchable($column, $searchTerm, $columnSearchTerm, $conditions);
-						if (is_array($result)) {
-							$conditions = $result;
-						}
-					} else {
-						if ($searchTerm) {
-							$conditions[] = array("$column LIKE" => '%' . $this->_params['sSearch'] . '%');
-						}
-						if ($columnSearchTerm) {
-							$conditions[] = array("$column LIKE" => '%' . $this->_params[$searchKey] . '%');
-						}
-					}
+
+                    if (array_key_exists('bindModel',$options)) {
+                        if ($options['bindModel']) {
+                            if (!array_key_exists('displayField', $settings)) {
+                                // @todo: if displayField is not specified, get it from model..
+                                $options['displayField'] = 'name';
+                            }
+                            if (!array_key_exists('foreignKey', $settings)) {
+                                // @todo: if foreignKey is not specified, get it from model..
+                                $options['foreignKey'] = 'id'; // @todo: remove when fixed.. forcing id for now..
+                            }
+
+                            if (!array_key_exists('className', $options)) {
+                                $model_field = explode('.',$column);
+                                $foreignKey = count($model_field)>1?$model_field[1]:$model_field[0];
+                                $name = substr($foreignKey,strlen($foreignKey)-3)=='_id'?substr($foreignKey,0,strlen($foreignKey)-3):$foreignKey;
+                                $className = Inflector::classify($name);
+                                $options['className'] = $className;
+                            } else if (substr($options['className'],0,1)=='{'&&substr($options['className'],strlen($options['className'])-1,1)=='}') { // polyphormic
+                                // @todo: figure out a way to deal with polyphormic associations.. use {field_class}?
+                                //$className = $this->_columns[$this->_object->alias][$this->_object->alias.'.'.substr($options['className'],1,strlen($options['className'])-2)];
+                                //$className = substr($options['className'],1,strlen($options['className'])-2);
+                                //debug($className);
+                                //debug($this->_columns[$this->_object->alias]);
+                                //die();
+                            }
+
+                            if (is_string($searchable) && is_callable(array($this->_object, $searchable))) {
+                                $result = $this->_object->$searchable($column, $searchTerm, $columnSearchTerm, $conditions);
+                                if (is_array($result)) {
+                                    $conditions = $result;
+                                }
+                            } else {
+                                if ($searchTerm) {
+                                    $conditions[] = array($options['className'].".".$options['displayField']." LIKE" => '%' . $this->_params['sSearch'] . '%');
+                                }
+                                if ($columnSearchTerm) {
+                                    $conditions[] = array($options['className'].".".$options['displayField']." LIKE" => '%' . $this->_params[$searchKey] . '%');
+                                }
+                            }
+                        }
+                    } else {
+                        if (is_string($searchable) && is_callable(array($this->_object, $searchable))) {
+                            $result = $this->_object->$searchable($column, $searchTerm, $columnSearchTerm, $conditions);
+                            if (is_array($result)) {
+                                $conditions = $result;
+                            }
+                        } else {
+                            if ($searchTerm) {
+                                $conditions[] = array("$column LIKE" => '%' . $this->_params['sSearch'] . '%');
+                            }
+                            if ($columnSearchTerm) {
+                                $conditions[] = array("$column LIKE" => '%' . $this->_params[$searchKey] . '%');
+                            }
+                        }
+                    }
 				}
 			}
 			$i++;
@@ -383,21 +426,61 @@ class DataTableComponent extends PaginatorComponent {
                         $name = substr($foreignKey,strlen($foreignKey)-3)=='_id'?substr($foreignKey,0,strlen($foreignKey)-3):$foreignKey;
                         $className = Inflector::classify($name);
                         $options['className'] = $className;
+                    } else if (substr($options['className'],0,1)=='{'&&substr($options['className'],strlen($options['className'])-1,1)=='}') {
+                        // @todo: figure out a way to deal with polyphormic associations.. use {field_class}?
+                        //$className = $this->_columns[$this->_object->alias][$this->_object->alias.'.'.substr($options['className'],1,strlen($options['className'])-2)];
+                        //$className = substr($options['className'],1,strlen($options['className'])-2);
+                        //debug($className);
+                        //debug($this->_columns[$this->_object->alias]);
+                        //die();
                     }
+
+                    if (!array_key_exists('displayField', $settings)) {
+                        // @todo: if displayField is not specified, get it from model..
+                        $options['displayField'] = 'name';
+                    }
+                    if (!array_key_exists('foreignKey', $settings)) {
+                        // @todo: if foreignKey is not specified, get it from model..
+                        $options['foreignKey'] = 'id'; // @todo: remove when fixed.. forcing id for now..
+                    }
+
+                    $searchable = $options['bSearchable'];
+                    if ($searchable !== false) {
+                        $searchKey = "sSearch_$i";
+                        $searchTerm = $columnSearchTerm = null;
+                        if (!empty($this->_params['sSearch'])) {
+                            $searchTerm = $this->_params['sSearch'];
+                        }
+                        if (!empty($this->_params[$searchKey])) {
+                            $columnSearchTerm = $this->_params[$searchKey];
+                        }
+                        if (is_string($searchable) && is_callable(array($this->_object, $searchable))) {
+                            $result = $this->_object->$searchable($column, $searchTerm, $columnSearchTerm, $conditions);
+                            if (is_array($result)) {
+                                $conditions = $result;
+                            }
+                        } else {
+                            if ($searchTerm) {
+                                $conditions[] = array($options['className'].".".$options['displayField']." LIKE" => '%' . $this->_params['sSearch'] . '%');
+                            }
+                            if ($columnSearchTerm) {
+                                $conditions[] = array($options['className'].".".$options['displayField']." LIKE" => '%' . $this->_params[$searchKey] . '%');
+                            }
+                        }
+                    }
+
                     if (array_key_exists('contain', $settings)) {
-                        $settings['contain'] = array_merge(array($options['className']), $settings['contain']);
+                        if (!empty($conditions)) {
+                            $settings['contain'] = array_merge(array($options['className']=>compact('conditions')), $settings['contain']);
+                        } else {
+                            $settings['contain'] = array_merge(array($options['className']), $settings['contain']);
+
+                        }
                     } else {
-                        if (!array_key_exists('displayField', $settings)) {
-                            // @todo: if displayField is not specified, get it from model..
-                            $options['displayField'] = 'name';
-                        }
-                        if (!array_key_exists('foreignKey', $settings)) {
-                            // @todo: if foreignKey is not specified, get it from model..
-                            $options['foreignKey'] = 'id'; // @todo: remove when fixed.. forcing id for now..
-                        }
                         $settings['contain'] = array(
                             $options['className'] => array(
-                                'fields' => array($options['foreignKey'], $options['displayField'])
+                                'fields' => array($options['foreignKey'], $options['displayField']),
+                                'conditions' => $conditions
                             )
                         );
                     }
