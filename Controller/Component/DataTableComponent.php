@@ -163,11 +163,12 @@ class DataTableComponent extends PaginatorComponent {
 
 		$this->_sort($settings);
 		$this->_search($settings);
+		$this->_contain($settings);
 		$this->_paginate($settings);
 		$this->settings[$this->_object->alias] = $settings;
 
 		$results = parent::paginate($this->_object, $scope);
-		$totalDisplayed = $this->Controller->request->params['paging'][$this->_object->alias]['count'];
+        $totalDisplayed = $this->Controller->request->params['paging'][$this->_object->alias]['count'];
 		$dataTableData = array(
 			'iTotalRecords' => $total,
 			'iTotalDisplayRecords' => $totalDisplayed,
@@ -362,6 +363,87 @@ class DataTableComponent extends PaginatorComponent {
 				}
 			}
 		}
+	}
+
+/**
+ * Adds any model associations to call using Containable behavior
+ *
+ * @param array $settings
+ * @return void
+ */
+	protected function _contain(&$settings) {
+        $i = 0;
+        $conditions = array();
+        foreach($this->_columns[$this->_object->alias] as $column => $options) {
+            if (array_key_exists('bindModel',$options)) {
+                if ($options['bindModel']) {
+                    if (!array_key_exists('className', $options)) {
+                        $model_field = explode('.',$column);
+                        $foreignKey = count($model_field)>1?$model_field[1]:$model_field[0];
+                        $name = substr($foreignKey,strlen($foreignKey)-3)=='_id'?substr($foreignKey,0,strlen($foreignKey)-3):$foreignKey;
+                        $className = Inflector::classify($name);
+                        $options['className'] = $className;
+                    }
+                    if (array_key_exists('contain', $settings)) {
+                        $settings['contain'] = array_merge(array($options['className']), $settings['contain']);
+                    } else {
+                        if (!array_key_exists('displayField', $settings)) {
+                            // @todo: if displayField is not specified, get it from model..
+                            $options['displayField'] = 'name';
+                        }
+                        if (!array_key_exists('foreignKey', $settings)) {
+                            // @todo: if foreignKey is not specified, get it from model..
+                            $options['foreignKey'] = 'id'; // @todo: remove when fixed.. forcing id for now..
+                        }
+                        $settings['contain'] = array(
+                            $options['className'] => array(
+                                'fields' => array($options['foreignKey'], $options['displayField'])
+                            )
+                        );
+                    }
+                }
+            }
+        }
+        /*
+		$i = 0;
+		$conditions = array();
+		foreach($this->_columns[$this->_object->alias] as $column => $options) {
+			if ($options['useField']) {
+				$searchable = $options['bSearchable'];
+				if ($searchable !== false) {
+					$searchKey = "sSearch_$i";
+					$searchTerm = $columnSearchTerm = null;
+					if (!empty($this->_params['sSearch'])) {
+						$searchTerm = $this->_params['sSearch'];
+					}
+					if (!empty($this->_params[$searchKey])) {
+						$columnSearchTerm = $this->_params[$searchKey];
+					}
+					if (is_string($searchable) && is_callable(array($this->_object, $searchable))) {
+						$result = $this->_object->$searchable($column, $searchTerm, $columnSearchTerm, $conditions);
+						if (is_array($result)) {
+							$conditions = $result;
+						}
+					} else {
+						if ($searchTerm) {
+							$conditions[] = array("$column LIKE" => '%' . $this->_params['sSearch'] . '%');
+						}
+						if ($columnSearchTerm) {
+							$conditions[] = array("$column LIKE" => '%' . $this->_params[$searchKey] . '%');
+						}
+					}
+				}
+			}
+			$i++;
+		}
+		if (!empty($conditions)) {
+			$current = array();
+			if (isset($settings['conditions']['OR'])) {
+				$current = array($settings['conditions']['OR']);
+			}
+			$settings['conditions']['OR'] = array_merge($current, $conditions);
+		}
+        */
 	}
 
 /**
