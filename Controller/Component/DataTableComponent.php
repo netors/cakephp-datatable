@@ -686,7 +686,12 @@ class DataTableComponent extends PaginatorComponent {
                                 //$settings['contain'] = array_merge(array($options['className']=>compact('conditions')), $settings['contain']);
                                 $settings['contain'] = array_merge(array($options['className']=>compact('conditions')), $settings['contain']);
                             } else {
-                                $settings['contain'] = array_merge(array($options['className']), $settings['contain']);
+                                $settings['contain'] = array_merge(array(
+                                    $options['className'] => array(
+                                        'fields' => array($options['foreignKey'], $options['displayField']),
+                                        'conditions' => $conditions
+                                    )
+                                ), $settings['contain']);
 
                             }
                         } else {
