@@ -502,8 +502,8 @@ class DataTableComponent extends PaginatorComponent {
                                 $name = substr($foreignKey,strlen($foreignKey)-3)=='_id'?substr($foreignKey,0,strlen($foreignKey)-3):$foreignKey;
                                 $className = Inflector::classify($name);
                                 $options['className'] = $className;
-                            } else if (substr($options['className'],0,1)=='{'&&substr($options['className'],strlen($options['className'])-1,1)=='}') { // polyphormic
-                                // @todo: figure out a way to deal with polyphormic associations.. use {field_class}?
+                            } else if (substr($options['className'],0,1)=='{'&&substr($options['className'],strlen($options['className'])-1,1)=='}') { // polymorphic
+                                // @todo: figure out a way to deal with polymorphic associations.. use {field_class}?
                                 //$className = $this->_columns[$this->_object->alias][$this->_object->alias.'.'.substr($options['className'],1,strlen($options['className'])-2)];
                                 //$className = substr($options['className'],1,strlen($options['className'])-2);
                                 //debug($className);
