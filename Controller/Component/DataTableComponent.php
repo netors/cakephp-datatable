@@ -21,6 +21,7 @@ class DataTableComponent extends PaginatorComponent {
  *   If the value is an array, it takes on the possible options:
  *    - `label` Label for the column
  *    - `bSearchable` A string may be passed instead which will be used as a model callback for extra user-defined
+ *    - `bindModel` Useful for polymorphic fields
  *       processing
  *    - All of the DataTable column options, see @link http://datatables.net/usage/columns
  * - `trigger` True will use default check, string will use custom controller callback. Defaults to true.
@@ -236,6 +237,7 @@ class DataTableComponent extends PaginatorComponent {
 					'label' => $label,
 					'bSortable' => $enabled,
 					'bSearchable' => $enabled,
+					'bindModel' => false,
 				);
 				$options = array_merge($defaults, (array)$options);
 				$column = ($options['useField']) ? $this->_toColumn($alias, $field) : $field;
@@ -307,6 +309,172 @@ class DataTableComponent extends PaginatorComponent {
 		foreach($this->_columns[$this->_object->alias] as $column => $options) {
 			if ($options['useField']) {
 				$searchable = $options['bSearchable'];
+
+                // _contain
+                if (!array_key_exists('poly', $options)) {
+                    if (!array_key_exists('className', $options)) {
+                        $model_field = explode('.',$column);
+                        //$foreignKey = count($model_field)>1?$model_field[1]:$model_field[0];
+                        //$name = substr($foreignKey,strlen($foreignKey)-3)=='_id'?substr($foreignKey,0,strlen($foreignKey)-3):$foreignKey;
+                        //$className = Inflector::classify($name);
+                        //$options['className'] = $className;
+                        $options['className'] = $model_field[0];
+                    }
+                } else {
+                    $settings['recursive'] = 2;
+                    $model_field = explode('.',$column);
+                    $foreignKey = count($model_field)>1?$model_field[1]:$model_field[0];
+                    $name = substr($foreignKey,strlen($foreignKey)-3)=='_id'?substr($foreignKey,0,strlen($foreignKey)-3):$foreignKey;
+                    $className = Inflector::classify($name);
+                    $options['className'] = $className;
+
+                    $name = substr($foreignKey,strlen($foreignKey)-12)=='_foreign_key'?substr($foreignKey,0,strlen($foreignKey)-12):$foreignKey;
+                    $classColumn = $name.'_class';
+                    //$className = Inflector::classify(); // @todo: somehow use $classColumn
+                    //$className = 'Contractor';
+                    //$options['className'] = $options['poly'].$className;
+
+                }
+                if (!array_key_exists('displayField', $options)) {
+                    if (!array_key_exists('poly', $options)) {
+                        // @todo: if displayField is not specified, get it from model..
+                        $options['displayField'] = 'name';
+                    } else {
+                        // @todo: if display_field is *missing*, specify the displayField property on the model, otherwise PolymorphicBehavior returns this error
+                        //$options['displayField'] = $result[$options['poly'].$className]['display_field'];
+                        $options['displayField'] = 'name';
+                    }
+                }
+                if (!array_key_exists('foreignKey', $options)) {
+                    // @todo: if foreignKey is not specified, get it from model..
+                    $options['foreignKey'] = 'id'; // @todo: remove when fixed.. forcing id for now..
+                }
+                $searchable = $options['bSearchable'];
+                if ($searchable !== false) {
+                    $searchKey = "sSearch_$i";
+                    $searchTerm = $columnSearchTerm = null;
+                    if (!empty($this->_params['sSearch'])) {
+                        $searchTerm = $this->_params['sSearch'];
+                    }
+                    if (!empty($this->_params[$searchKey])) {
+                        $columnSearchTerm = $this->_params[$searchKey];
+                    }
+                    if (!array_key_exists('poly', $options)) {
+                        if (is_string($searchable) && is_callable(array($this->_object, $searchable))) {
+                            $result = $this->_object->$searchable($column, $searchTerm, $columnSearchTerm, $conditions);
+                            if (is_array($result)) {
+                                $conditions = $result;
+                            }
+                        } else {
+                            if ($searchTerm) {
+                                $conditions[] = array($column." LIKE" => '%' . $this->_params['sSearch'] . '%');
+                            }
+                            if ($columnSearchTerm) {
+                                $conditions[] = array($column." LIKE" => '%' . $this->_params[$searchKey] . '%');
+                            }
+                        }
+                    } else {
+                        $isPolymorphic = array_key_exists('Polymorphic',$this->_object->actsAs);
+                        if ($isPolymorphic) {
+                            if (isset($this->_object->actsAs['Polymorphic'][Inflector::classify($name)])) {
+                                $hasAssociation = true;
+                            } else {
+                                $hasAssociation = false;
+                            }
+                        } else {
+                            $hasAssociation = false;
+                        }
+                        if (is_string($searchable) && $hasAssociation) {
+                            $result = $this->_object->$searchable($column, $searchTerm, $columnSearchTerm, $conditions);
+                            if (is_array($result)) {
+                                $conditions = $result;
+                            }
+                        } else {
+                            foreach ($this->_object->actsAs['Polymorphic'][Inflector::classify($name)]['models'] as $model) {
+                                if ($searchTerm) {
+                                    if (!array_key_exists($model.".".$options['displayField'],$settings['fields'])) {
+                                        $settings['fields'][] = Inflector::classify($name).$model.".".$options['displayField'];
+                                        /*
+                                        $this->_object->bindModel(array(
+                                            'belongsTo' => array(
+                                                Inflector::classify($name).$model => array(
+                                                    'className' => $model,
+                                                    'foreignKey' => $foreignKey,
+                                                    'conditions' => array($this->_object->alias.'.'.$classColumn=>$model),
+                                                    'fields' => array('id', $options['displayField']),
+                                                    'order' => ''
+                                                ),
+                                            )
+                                        ));
+                                        */
+                                    }
+                                    $conditions[] = array(Inflector::classify($name).$model.".".$options['displayField']." LIKE" => '%' . $this->_params['sSearch'] . '%');
+                                }
+                                if ($columnSearchTerm) {
+                                    if (!array_key_exists($model.".".$options['displayField'],$settings['fields'])) {
+                                        $settings['fields'][] = Inflector::classify($name).$model.".".$options['displayField'];
+                                        /*
+                                        $this->_object->bindModel(array(
+                                            'belongsTo' => array(
+                                                Inflector::classify($name).$model => array(
+                                                    'className' => $model,
+                                                    'foreignKey' => $foreignKey,
+                                                    'conditions' => array($this->_object->alias.'.'.$classColumn=>$model),
+                                                    'fields' => array('id', $options['displayField']),
+                                                    'order' => ''
+                                                ),
+                                            )
+                                        ));
+                                        */
+                                    }
+                                    $conditions[] = array(Inflector::classify($name).$model.".".$options['displayField']." LIKE" => '%' . $this->_params[$searchKey] . '%');
+                                }
+                            }
+                        }
+                    }
+                }
+                /*
+                if (!array_key_exists('poly', $options)) {
+                    if (array_key_exists('contain', $settings)) {
+                        if (!empty($conditions)) {
+                            //$settings['contain'] = array_merge(array($options['className']=>compact('conditions')), $settings['contain']);
+                            $settings['contain'] = array_merge(array($options['className']=>compact('conditions')), $settings['contain']);
+                        } else {
+                            $settings['contain'] = array_merge(array($options['className']), $settings['contain']);
+
+                        }
+                    } else {
+                        $settings['contain'] = array(
+                            $options['className'] => array(
+                                'fields' => array($options['foreignKey'], $options['displayField']),
+                                'conditions' => $conditions
+                            )
+                        );
+                    }
+                } else {
+                    foreach ($this->_object->actsAs['Polymorphic'][Inflector::classify($name)]['models'] as $model) {
+                        if (array_key_exists('contain', $settings)) {
+                            if (!empty($conditions)) {
+                                //$settings['contain'] = array_merge(array($options['className']=>compact('conditions')), $settings['contain']);
+                                $settings['contain'] = array_merge(array($model=>compact('conditions')), $settings['contain']);
+                            } else {
+                                $settings['contain'] = array_merge(array($model), $settings['contain']);
+
+                            }
+                        } else {
+                            $settings['contain'] = array(
+                                $model => array(
+                                    'fields' => array($options['foreignKey'], $options['displayField']),
+                                    'conditions' => $conditions
+                                )
+                            );
+                        }
+                    }
+                }
+                */
+
+                // _search
+                /*
 				if ($searchable !== false) {
 					$searchKey = "sSearch_$i";
 					$searchTerm = $columnSearchTerm = null;
@@ -373,6 +541,7 @@ class DataTableComponent extends PaginatorComponent {
                         }
                     }
 				}
+                */
 			}
 			$i++;
 		}
@@ -417,33 +586,46 @@ class DataTableComponent extends PaginatorComponent {
 	protected function _contain(&$settings) {
         $i = 0;
         $conditions = array();
+        $containConditions = array();
         foreach($this->_columns[$this->_object->alias] as $column => $options) {
             if (array_key_exists('bindModel',$options)) {
                 if ($options['bindModel']) {
-                    if (!array_key_exists('className', $options)) {
+                    if (!array_key_exists('poly', $options)) {
+                        if (!array_key_exists('className', $options)) {
+                            $model_field = explode('.',$column);
+                            $foreignKey = count($model_field)>1?$model_field[1]:$model_field[0];
+                            $name = substr($foreignKey,strlen($foreignKey)-3)=='_id'?substr($foreignKey,0,strlen($foreignKey)-3):$foreignKey;
+                            $className = Inflector::classify($name);
+                            $options['className'] = $className;
+                        }
+                    } else {
                         $model_field = explode('.',$column);
                         $foreignKey = count($model_field)>1?$model_field[1]:$model_field[0];
                         $name = substr($foreignKey,strlen($foreignKey)-3)=='_id'?substr($foreignKey,0,strlen($foreignKey)-3):$foreignKey;
                         $className = Inflector::classify($name);
                         $options['className'] = $className;
-                    } else if (substr($options['className'],0,1)=='{'&&substr($options['className'],strlen($options['className'])-1,1)=='}') {
-                        // @todo: figure out a way to deal with polyphormic associations.. use {field_class}?
-                        //$className = $this->_columns[$this->_object->alias][$this->_object->alias.'.'.substr($options['className'],1,strlen($options['className'])-2)];
-                        //$className = substr($options['className'],1,strlen($options['className'])-2);
-                        //debug($className);
-                        //debug($this->_columns[$this->_object->alias]);
-                        //die();
-                    }
 
-                    if (!array_key_exists('displayField', $settings)) {
-                        // @todo: if displayField is not specified, get it from model..
-                        $options['displayField'] = 'name';
+                        $name = substr($foreignKey,strlen($foreignKey)-12)=='_foreign_key'?substr($foreignKey,0,strlen($foreignKey)-12):$foreignKey;
+                        $classColumn = $name.'_class';
+                        //$className = Inflector::classify(); // @todo: somehow use $classColumn
+                        //$className = 'Contractor';
+                        //$options['className'] = $options['poly'].$className;
+
                     }
-                    if (!array_key_exists('foreignKey', $settings)) {
+                    if (!array_key_exists('displayField', $options)) {
+                        if (!array_key_exists('poly', $options)) {
+                            // @todo: if displayField is not specified, get it from model..
+                            $options['displayField'] = 'name';
+                        } else {
+                            // @todo: if display_field is *missing*, specify the displayField property on the model, otherwise PolymorphicBehavior returns this error
+                            //$options['displayField'] = $result[$options['poly'].$className]['display_field'];
+                            $options['displayField'] = 'name';
+                        }
+                    }
+                    if (!array_key_exists('foreignKey', $options)) {
                         // @todo: if foreignKey is not specified, get it from model..
                         $options['foreignKey'] = 'id'; // @todo: remove when fixed.. forcing id for now..
                     }
-
                     $searchable = $options['bSearchable'];
                     if ($searchable !== false) {
                         $searchKey = "sSearch_$i";
@@ -454,35 +636,104 @@ class DataTableComponent extends PaginatorComponent {
                         if (!empty($this->_params[$searchKey])) {
                             $columnSearchTerm = $this->_params[$searchKey];
                         }
-                        if (is_string($searchable) && is_callable(array($this->_object, $searchable))) {
-                            $result = $this->_object->$searchable($column, $searchTerm, $columnSearchTerm, $conditions);
-                            if (is_array($result)) {
-                                $conditions = $result;
+                        if (!array_key_exists('poly', $options)) {
+                            if (is_string($searchable) && is_callable(array($this->_object, $searchable))) {
+                                $result = $this->_object->$searchable($column, $searchTerm, $columnSearchTerm, $conditions);
+                                if (is_array($result)) {
+                                    $conditions = $result;
+                                }
+                            } else {
+                                if ($searchTerm) {
+                                    $conditions[] = array($options['className'].".".$options['displayField']." LIKE" => '%' . $this->_params['sSearch'] . '%');
+                                }
+                                if ($columnSearchTerm) {
+                                    $conditions[] = array($options['className'].".".$options['displayField']." LIKE" => '%' . $this->_params[$searchKey] . '%');
+                                }
                             }
                         } else {
-                            if ($searchTerm) {
-                                $conditions[] = array($options['className'].".".$options['displayField']." LIKE" => '%' . $this->_params['sSearch'] . '%');
+                            $isPolymorphic = array_key_exists('Polymorphic',$this->_object->actsAs);
+                            if ($isPolymorphic) {
+                                if (isset($this->_object->actsAs['Polymorphic'][Inflector::classify($name)])) {
+                                    $hasAssociation = true;
+                                } else {
+                                    $hasAssociation = false;
+                                }
+                            } else {
+                                $hasAssociation = false;
                             }
-                            if ($columnSearchTerm) {
-                                $conditions[] = array($options['className'].".".$options['displayField']." LIKE" => '%' . $this->_params[$searchKey] . '%');
+                            if (is_string($searchable) && $hasAssociation) {
+                                $result = $this->_object->$searchable($column, $searchTerm, $columnSearchTerm, $conditions);
+                                if (is_array($result)) {
+                                    $conditions = $result;
+                                }
+                            } else {
+                                foreach ($this->_object->actsAs['Polymorphic'][Inflector::classify($name)]['models'] as $model) {
+                                    if ($searchTerm) {
+                                        $conditions[] = array(Inflector::classify($name).$model.".".$options['displayField']." LIKE" => '%' . $this->_params['sSearch'] . '%');
+                                        $containConditions[Inflector::classify($name).$model] = array(Inflector::classify($name).$model.".".$options['displayField']." LIKE" => '%' . $this->_params['sSearch'] . '%');
+                                    }
+                                    if ($columnSearchTerm) {
+                                        $conditions[] = array(Inflector::classify($name).$model.".".$options['displayField']." LIKE" => '%' . $this->_params[$searchKey] . '%');
+                                        $containConditions[Inflector::classify($name).$model] = array(Inflector::classify($name).$model.".".$options['displayField']." LIKE" => '%' . $this->_params[$searchKey] . '%');
+                                    }
+                                }
                             }
                         }
                     }
+                    if (!array_key_exists('poly', $options)) {
+                        if (array_key_exists('contain', $settings)) {
+                            if (!empty($containConditions)) {
+                                //$settings['contain'] = array_merge(array($options['className']=>compact('conditions')), $settings['contain']);
+                                $settings['contain'] = array_merge(array($options['className']=>compact('conditions')), $settings['contain']);
+                            } else {
+                                $settings['contain'] = array_merge(array($options['className']), $settings['contain']);
 
-                    if (array_key_exists('contain', $settings)) {
-                        if (!empty($conditions)) {
-                            $settings['contain'] = array_merge(array($options['className']=>compact('conditions')), $settings['contain']);
+                            }
                         } else {
-                            $settings['contain'] = array_merge(array($options['className']), $settings['contain']);
-
+                            $settings['contain'] = array(
+                                $options['className'] => array(
+                                    'fields' => array($options['foreignKey'], $options['displayField']),
+                                    'conditions' => $conditions
+                                )
+                            );
                         }
                     } else {
-                        $settings['contain'] = array(
-                            $options['className'] => array(
-                                'fields' => array($options['foreignKey'], $options['displayField']),
-                                'conditions' => $conditions
-                            )
-                        );
+                        foreach ($this->_object->actsAs['Polymorphic'][Inflector::classify($name)]['models'] as $model) {
+                            if (array_key_exists('contain', $settings)) {
+                                if (!empty($containConditions)) {
+                                    //$settings['contain'] = array_merge(array($options['className']=>compact('conditions')), $settings['contain']);
+                                    $settings['contain'] = array_merge(
+                                        array(
+                                            Inflector::classify($name).$model => array(
+                                                'fields' => array($options['foreignKey'], $options['displayField']),
+                                                'conditions'=> isset($containConditions[$options['className']])?$containConditions[$options['className']]:''
+                                            )
+                                        ),
+                                        $settings['contain']
+                                    );
+                                } else {
+                                    $settings['contain'] = array_merge(array(Inflector::classify($name).$model), $settings['contain']);
+                                }
+                            } else {
+                                $settings['contain'] = array(
+                                    Inflector::classify($name).$model => array(
+                                        'fields' => array($options['foreignKey'], $options['displayField']),
+                                        'conditions' => isset($containConditions[$options['className']])?$containConditions[$options['className']]:''
+                                    )
+                                );
+                            }
+                            $this->_object->bindModel(array(
+                                'belongsTo' => array(
+                                    Inflector::classify($name).$model => array(
+                                        'className' => $model,
+                                        'foreignKey' => $foreignKey,
+                                        'conditions' => array($this->_object->alias.'.'.$classColumn=>$model),
+                                        'fields' => array('id', $options['displayField']),
+                                        'order' => ''
+                                    ),
+                                )
+                            ));
+                        }
                     }
                 }
             }
