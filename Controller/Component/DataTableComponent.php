@@ -314,11 +314,14 @@ class DataTableComponent extends PaginatorComponent {
                 if (!array_key_exists('poly', $options)) {
                     if (!array_key_exists('className', $options)) {
                         $model_field = explode('.',$column);
+                        $options['className'] = $model_field[0];
+                        if (substr($model_field[1],strlen($model_field[1])-3)=='_id') {
+                            $options['className'] = Inflector::classify(substr($model_field[1],0,strlen($model_field[1])-3));
+                        }
                         //$foreignKey = count($model_field)>1?$model_field[1]:$model_field[0];
                         //$name = substr($foreignKey,strlen($foreignKey)-3)=='_id'?substr($foreignKey,0,strlen($foreignKey)-3):$foreignKey;
                         //$className = Inflector::classify($name);
                         //$options['className'] = $className;
-                        $options['className'] = $model_field[0];
                     }
                 } else {
                     $settings['recursive'] = 2;
@@ -367,9 +370,18 @@ class DataTableComponent extends PaginatorComponent {
                             }
                         } else {
                             if ($searchTerm) {
-                                $conditions[] = array($column." LIKE" => '%' . $this->_params['sSearch'] . '%');
+                                if (array_key_exists('bindModel',$options)&&@$options['bindModel']) {
+                                    $conditions[] = array($options['className'].'.'.$options['foreignKey']." LIKE" => '%' . $this->_params['sSearch'] . '%');
+                                    $conditions[] = array($options['className'].'.'.$options['displayField']." LIKE" => '%' . $this->_params['sSearch'] . '%');
+                                } else {
+                                    $conditions[] = array($column." LIKE" => '%' . $this->_params['sSearch'] . '%');
+                                }
                             }
                             if ($columnSearchTerm) {
+                                if (array_key_exists('bindModel',$options)&&@$options['bindModel']) {
+                                    $conditions[] =  array($options['className'].'.'.$options['primaryKey']." LIKE" => '%' . $this->_params[$searchKey] . '%');
+                                    $conditions[] =  array($options['className'].'.'.$options['displayField']." LIKE" => '%' . $this->_params[$searchKey] . '%');
+                                }
                                 $conditions[] = array($column." LIKE" => '%' . $this->_params[$searchKey] . '%');
                             }
                         }
@@ -645,9 +657,11 @@ class DataTableComponent extends PaginatorComponent {
                             } else {
                                 if ($searchTerm) {
                                     $conditions[] = array($options['className'].".".$options['displayField']." LIKE" => '%' . $this->_params['sSearch'] . '%');
+                                    $containConditions[$options['className']] = array($options['className'].".".$options['displayField']." LIKE" => '%' . $this->_params['sSearch'] . '%');
                                 }
                                 if ($columnSearchTerm) {
                                     $conditions[] = array($options['className'].".".$options['displayField']." LIKE" => '%' . $this->_params[$searchKey] . '%');
+                                    $containConditions[$options['className']] = array($options['className'].".".$options['displayField']." LIKE" => '%' . $this->_params[$searchKey] . '%');
                                 }
                             }
                         } else {
@@ -698,7 +712,7 @@ class DataTableComponent extends PaginatorComponent {
                             $settings['contain'] = array(
                                 $options['className'] => array(
                                     'fields' => array($options['foreignKey'], $options['displayField']),
-                                    'conditions' => $conditions
+                                    'conditions' => isset($containConditions[$options['className']])?$containConditions[$options['className']]:array()
                                 )
                             );
                         }
@@ -711,19 +725,25 @@ class DataTableComponent extends PaginatorComponent {
                                         array(
                                             Inflector::classify($name).$model => array(
                                                 'fields' => array($options['foreignKey'], $options['displayField']),
-                                                'conditions'=> isset($containConditions[$options['className']])?$containConditions[$options['className']]:''
+                                                'conditions'=> isset($containConditions[Inflector::classify($name).$model])?$containConditions[Inflector::classify($name).$model]:array()
                                             )
                                         ),
                                         $settings['contain']
                                     );
                                 } else {
-                                    $settings['contain'] = array_merge(array(Inflector::classify($name).$model), $settings['contain']);
+                                    $settings['contain'] = array_merge(array(
+                                            Inflector::classify($name).$model => array(
+                                                'fields' => array($options['foreignKey'], $options['displayField']),
+                                            )
+                                        ),
+                                        $settings['contain']
+                                    );
                                 }
                             } else {
                                 $settings['contain'] = array(
                                     Inflector::classify($name).$model => array(
                                         'fields' => array($options['foreignKey'], $options['displayField']),
-                                        'conditions' => isset($containConditions[$options['className']])?$containConditions[$options['className']]:''
+                                        'conditions' => isset($containConditions[Inflector::classify($name).$model])?$containConditions[Inflector::classify($name).$model]:array()
                                     )
                                 );
                             }
